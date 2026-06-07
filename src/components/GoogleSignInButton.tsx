@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import * as Google from 'expo-auth-session/providers/google';
-import { ResponseType } from 'expo-auth-session';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '@/context/AuthContext';
 
 WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_DISCOVERY: AuthSession.DiscoveryDocument = {
+  authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+  tokenEndpoint: 'https://oauth2.googleapis.com/token',
+  revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+};
 
 type Props = {
   onError?: (msg: string) => void;
@@ -15,16 +20,21 @@ export default function GoogleSignInButton({ onError }: Props) {
   const { signInWithGoogle } = useAuth();
   const [loading, setLoading] = useState(false);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    responseType: ResponseType.IdToken,
-  });
+  const redirectUri = AuthSession.makeRedirectUri();
+
+  const [request, response, promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '',
+      scopes: ['openid', 'email', 'profile'],
+      responseType: AuthSession.ResponseType.IdToken,
+      redirectUri,
+    },
+    GOOGLE_DISCOVERY
+  );
 
   useEffect(() => {
     if (response?.type === 'success') {
-      const idToken = response.params.id_token;
+      const idToken = response.params?.id_token;
       if (!idToken) {
         onError?.('Connexion Google échouée.');
         return;
