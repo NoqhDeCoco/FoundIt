@@ -15,7 +15,7 @@ import { Timestamp, collection, doc } from 'firebase/firestore';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/AuthContext';
-import { createFind } from '@/services/finds';
+import { createFindGroup } from '@/services/finds';
 import { createCategory, listCategories } from '@/services/categories';
 import { db } from '@/services/firebase';
 import { CURRENCIES, FindType, Category } from '@/types';
@@ -26,12 +26,23 @@ type Props = {
   onClose: () => void;
 };
 
+type Bloc = {
+  key: string;
+  qty: string;
+  amount: string;
+  type: FindType;
+  currency: string;
+};
+
+function newBloc(): Bloc {
+  return { key: Math.random().toString(36).slice(2), qty: '1', amount: '', type: 'piece', currency: 'EUR' };
+}
+
 function todayFR(): string {
   const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  return `${dd}/${mm}/${yyyy}`;
+  return [d.getDate(), d.getMonth() + 1, d.getFullYear()]
+    .map((n) => String(n).padStart(2, '0'))
+    .join('/');
 }
 
 function parseDateFR(text: string): Date | null {
@@ -47,18 +58,14 @@ export default function AddFindModal({ visible, onClose }: Props) {
 
   const [dateText, setDateText] = useState(todayFR());
   const [categoryName, setCategoryName] = useState('');
-  const [qty, setQty] = useState('1');
-  const [amount, setAmount] = useState('');
-  const [type, setType] = useState<FindType>('piece');
-  const [currency, setCurrency] = useState('EUR');
-  const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
+  const [blocs, setBlocs] = useState<Bloc[]>([newBloc()]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const [allCategories, setAllCategories] = useState<Category[]>([]);
   const [categoryFocused, setCategoryFocused] = useState(false);
+  const [currencyPickerFor, setCurrencyPickerFor] = useState<string | null>(null);
 
-  // Charge les catégories à l'ouverture du modal
   useEffect(() => {
     if (visible && user) {
       listCategories(user.uid).then(setAllCategories);
@@ -71,28 +78,29 @@ export default function AddFindModal({ visible, onClose }: Props) {
       )
     : [];
 
-  const selectCategory = (cat: Category) => {
-    setCategoryName(cat.name);
-    setCategoryFocused(false);
-  };
+  // ─── Blocs helpers ───────────────────────────────────────────────────────────
 
-  const selectedCurrency = CURRENCIES.find((c) => c.code === currency)!;
+  const updateBloc = (key: string, patch: Partial<Bloc>) =>
+    setBlocs((prev) => prev.map((b) => b.key === key ? { ...b, ...patch } : b));
+
+  const addBloc = () => setBlocs((prev) => [...prev, newBloc()]);
+
+  const removeBloc = (key: string) =>
+    setBlocs((prev) => prev.filter((b) => b.key !== key));
+
+  // ─── Reset ───────────────────────────────────────────────────────────────────
 
   const reset = () => {
     setDateText(todayFR());
     setCategoryName('');
-    setQty('1');
-    setAmount('');
-    setType('piece');
-    setCurrency('EUR');
+    setBlocs([newBloc()]);
     setError('');
     setCategoryFocused(false);
   };
 
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
+  const handleClose = () => { reset(); onClose(); };
+
+  // ─── Submit ──────────────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
     if (!user) return;
@@ -101,17 +109,17 @@ export default function AddFindModal({ visible, onClose }: Props) {
     const parsedDate = parseDateFR(dateText);
     if (!parsedDate) { setError('Date invalide. Format : JJ/MM/AAAA'); return; }
 
-    const parsedAmount = parseFloat(amount.replace(',', '.'));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) { setError('Montant invalide.'); return; }
-
-    const parsedQty = parseInt(qty, 10);
-    if (isNaN(parsedQty) || parsedQty <= 0) { setError('Quantité invalide.'); return; }
+    for (const b of blocs) {
+      const a = parseFloat(b.amount.replace(',', '.'));
+      if (isNaN(a) || a <= 0) { setError('Un montant est invalide.'); return; }
+      const q = parseInt(b.qty, 10);
+      if (isNaN(q) || q <= 0) { setError('Une quantité est invalide.'); return; }
+    }
 
     const catName = categoryName.trim() || 'Sans catégorie';
 
     setLoading(true);
     try {
-      // Trouve ou crée la catégorie (insensible à la casse, sans doublon)
       let cat = allCategories.find((c) => c.name.toLowerCase() === catName.toLowerCase());
       if (!cat) {
         cat = await createCategory(user.uid, { name: catName });
@@ -119,16 +127,20 @@ export default function AddFindModal({ visible, onClose }: Props) {
       }
 
       const groupId = doc(collection(db, '_')).id;
+      const date = Timestamp.fromDate(parsedDate);
 
-      await createFind(user.uid, {
-        groupId,
-        date: Timestamp.fromDate(parsedDate),
-        categoryId: cat.id,
-        type,
-        currency,
-        amount: parsedAmount,
-        qty: parsedQty,
-      });
+      await createFindGroup(
+        user.uid,
+        blocs.map((b) => ({
+          groupId,
+          date,
+          categoryId: cat!.id,
+          type: b.type,
+          currency: b.currency,
+          amount: parseFloat(b.amount.replace(',', '.')),
+          qty: parseInt(b.qty, 10),
+        }))
+      );
 
       handleClose();
     } catch {
@@ -138,12 +150,19 @@ export default function AddFindModal({ visible, onClose }: Props) {
     }
   };
 
+  // ─── Styles dynamiques ───────────────────────────────────────────────────────
+
   const inputStyle = [styles.input, { backgroundColor: theme.backgroundElement, color: theme.text }];
   const labelStyle = { color: theme.textSecondary };
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: theme.background }}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1, backgroundColor: theme.background }}
+      >
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
           {/* Header */}
           <View style={styles.header}>
@@ -160,7 +179,8 @@ export default function AddFindModal({ visible, onClose }: Props) {
           </View>
 
           <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-            {/* Date */}
+
+            {/* ── Champs communs ── */}
             <ThemedText type="small" style={[styles.label, labelStyle]}>Date</ThemedText>
             <View style={styles.row}>
               <TextInput
@@ -179,30 +199,24 @@ export default function AddFindModal({ visible, onClose }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* Catégorie avec autocomplete */}
             <ThemedText type="small" style={[styles.label, labelStyle]}>Catégorie</ThemedText>
             <TextInput
               style={inputStyle}
               value={categoryName}
-              onChangeText={(text) => { setCategoryName(text); setCategoryFocused(true); }}
+              onChangeText={(t) => { setCategoryName(t); setCategoryFocused(true); }}
               onFocus={() => setCategoryFocused(true)}
-              onBlur={() => {
-                // Délai pour laisser le temps au onPress de la suggestion de se déclencher
-                setTimeout(() => setCategoryFocused(false), 150);
-              }}
+              onBlur={() => setTimeout(() => setCategoryFocused(false), 150)}
               placeholder="Ex: Rue, Métro, Supermarché…"
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="sentences"
             />
-
-            {/* Suggestions */}
             {suggestions.length > 0 && (
               <View style={[styles.suggestions, { backgroundColor: theme.backgroundElement }]}>
                 {suggestions.map((cat) => (
                   <TouchableOpacity
                     key={cat.id}
                     style={styles.suggestionItem}
-                    onPress={() => selectCategory(cat)}
+                    onPress={() => { setCategoryName(cat.name); setCategoryFocused(false); }}
                   >
                     <ThemedText type="default">{cat.name}</ThemedText>
                   </TouchableOpacity>
@@ -210,52 +224,86 @@ export default function AddFindModal({ visible, onClose }: Props) {
               </View>
             )}
 
-            {/* Type */}
-            <ThemedText type="small" style={[styles.label, labelStyle]}>Type</ThemedText>
-            <View style={[styles.toggle, { backgroundColor: theme.backgroundElement }]}>
-              {(['piece', 'billet'] as FindType[]).map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  style={[styles.toggleOption, type === t && { backgroundColor: theme.backgroundSelected }]}
-                  onPress={() => setType(t)}
+            {/* ── Blocs monnaies ── */}
+            <View style={styles.blocsHeader}>
+              <ThemedText type="small" style={labelStyle}>Monnaies trouvées</ThemedText>
+            </View>
+
+            {blocs.map((bloc, index) => {
+              const curr = CURRENCIES.find((c) => c.code === bloc.currency)!;
+              return (
+                <View
+                  key={bloc.key}
+                  style={[styles.bloc, { backgroundColor: theme.backgroundElement }]}
                 >
-                  <ThemedText type="small">{t === 'piece' ? '🪙 Pièce' : '💵 Billet'}</ThemedText>
-                </TouchableOpacity>
-              ))}
-            </View>
+                  {/* En-tête du bloc */}
+                  <View style={styles.blocHeader}>
+                    <ThemedText type="smallBold" themeColor="textSecondary">
+                      Monnaie {index + 1}
+                    </ThemedText>
+                    {blocs.length > 1 && (
+                      <TouchableOpacity onPress={() => removeBloc(bloc.key)} hitSlop={10}>
+                        <ThemedText type="small" style={{ color: '#e53e3e' }}>✕ Supprimer</ThemedText>
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
-            {/* Montant + Quantité */}
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="small" style={[styles.label, labelStyle]}>Montant unitaire</ThemedText>
-                <TextInput
-                  style={inputStyle}
-                  value={amount}
-                  onChangeText={setAmount}
-                  placeholder="Ex: 0.10, 1, 50"
-                  placeholderTextColor={theme.textSecondary}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <View style={styles.qtyCol}>
-                <ThemedText type="small" style={[styles.label, labelStyle]}>Quantité</ThemedText>
-                <TextInput
-                  style={inputStyle}
-                  value={qty}
-                  onChangeText={setQty}
-                  keyboardType="number-pad"
-                />
-              </View>
-            </View>
+                  {/* Type */}
+                  <View style={[styles.toggle, { backgroundColor: theme.background }]}>
+                    {(['piece', 'billet'] as FindType[]).map((t) => (
+                      <TouchableOpacity
+                        key={t}
+                        style={[styles.toggleOption, bloc.type === t && { backgroundColor: theme.backgroundSelected }]}
+                        onPress={() => updateBloc(bloc.key, { type: t })}
+                      >
+                        <ThemedText type="small">{t === 'piece' ? '🪙 Pièce' : '💵 Billet'}</ThemedText>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-            {/* Devise */}
-            <ThemedText type="small" style={[styles.label, labelStyle]}>Devise</ThemedText>
+                  {/* Montant + Quantité */}
+                  <View style={[styles.row, { marginTop: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <ThemedText type="small" style={[{ marginBottom: 6 }, labelStyle]}>Montant unitaire</ThemedText>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.background, color: theme.text }]}
+                        value={bloc.amount}
+                        onChangeText={(v) => updateBloc(bloc.key, { amount: v })}
+                        placeholder="Ex: 0.10, 1, 50"
+                        placeholderTextColor={theme.textSecondary}
+                        keyboardType="decimal-pad"
+                      />
+                    </View>
+                    <View style={styles.qtyCol}>
+                      <ThemedText type="small" style={[{ marginBottom: 6 }, labelStyle]}>Qté</ThemedText>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: theme.background, color: theme.text }]}
+                        value={bloc.qty}
+                        onChangeText={(v) => updateBloc(bloc.key, { qty: v })}
+                        keyboardType="number-pad"
+                      />
+                    </View>
+                  </View>
+
+                  {/* Devise */}
+                  <ThemedText type="small" style={[{ marginTop: 10, marginBottom: 6 }, labelStyle]}>Devise</ThemedText>
+                  <TouchableOpacity
+                    style={[styles.input, styles.currencyBtn, { backgroundColor: theme.background }]}
+                    onPress={() => setCurrencyPickerFor(bloc.key)}
+                  >
+                    <ThemedText type="default">{curr.symbol} — {curr.label}</ThemedText>
+                    <ThemedText type="small" themeColor="textSecondary">▾</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+
+            {/* Bouton ajouter un bloc */}
             <TouchableOpacity
-              style={[inputStyle, styles.currencyBtn]}
-              onPress={() => setShowCurrencyPicker(true)}
+              style={[styles.addBlocBtn, { borderColor: theme.backgroundSelected }]}
+              onPress={addBloc}
             >
-              <ThemedText type="default">{selectedCurrency.symbol} — {selectedCurrency.label}</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">▾</ThemedText>
+              <ThemedText type="small" style={{ color: '#208AEF' }}>+ Ajouter une monnaie</ThemedText>
             </TouchableOpacity>
 
             {error !== '' && (
@@ -266,20 +314,31 @@ export default function AddFindModal({ visible, onClose }: Props) {
       </KeyboardAvoidingView>
 
       {/* Currency Picker Modal */}
-      <Modal visible={showCurrencyPicker} transparent animationType="fade" onRequestClose={() => setShowCurrencyPicker(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setShowCurrencyPicker(false)}>
+      <Modal
+        visible={currencyPickerFor !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCurrencyPickerFor(null)}
+      >
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setCurrencyPickerFor(null)}>
           <View style={[styles.pickerSheet, { backgroundColor: theme.backgroundElement }]}>
             <ThemedText type="smallBold" style={{ marginBottom: 12 }}>Choisir une devise</ThemedText>
-            {CURRENCIES.map((c) => (
-              <TouchableOpacity
-                key={c.code}
-                style={[styles.currencyOption, currency === c.code && { backgroundColor: theme.backgroundSelected }]}
-                onPress={() => { setCurrency(c.code); setShowCurrencyPicker(false); }}
-              >
-                <ThemedText type="default">{c.symbol}</ThemedText>
-                <ThemedText type="default" style={{ marginLeft: 12 }}>{c.label}</ThemedText>
-              </TouchableOpacity>
-            ))}
+            {CURRENCIES.map((c) => {
+              const currentCode = blocs.find((b) => b.key === currencyPickerFor)?.currency;
+              return (
+                <TouchableOpacity
+                  key={c.code}
+                  style={[styles.currencyOption, currentCode === c.code && { backgroundColor: theme.backgroundSelected }]}
+                  onPress={() => {
+                    if (currencyPickerFor) updateBloc(currencyPickerFor, { currency: c.code });
+                    setCurrencyPickerFor(null);
+                  }}
+                >
+                  <ThemedText type="default">{c.symbol}</ThemedText>
+                  <ThemedText type="default" style={{ marginLeft: 12 }}>{c.label}</ThemedText>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -300,64 +359,33 @@ const styles = StyleSheet.create({
   },
   form: { padding: 16, gap: 4 },
   label: { marginTop: 16, marginBottom: 6 },
-  input: {
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-  },
+  input: { borderRadius: 10, padding: 14, fontSize: 16 },
   row: { flexDirection: 'row', gap: 10 },
-  todayBtn: {
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  todayBtn: { borderRadius: 10, paddingHorizontal: 14, justifyContent: 'center', alignItems: 'center' },
   qtyCol: { width: 80 },
-  toggle: {
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 4,
-    gap: 4,
-  },
-  toggleOption: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  currencyBtn: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  suggestions: {
-    borderRadius: 10,
-    marginTop: 4,
-    overflow: 'hidden',
-  },
+  toggle: { flexDirection: 'row', borderRadius: 10, padding: 4, gap: 4 },
+  toggleOption: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  currencyBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  suggestions: { borderRadius: 10, marginTop: 4, overflow: 'hidden' },
   suggestionItem: {
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(0,0,0,0.08)',
   },
-  error: { color: '#e53e3e', marginTop: 12, textAlign: 'center' },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
-  },
-  pickerSheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    padding: 20,
-    paddingBottom: 36,
-  },
-  currencyOption: {
-    flexDirection: 'row',
+  blocsHeader: { marginTop: 20, marginBottom: 8 },
+  bloc: { borderRadius: 14, padding: 14, marginBottom: 10 },
+  blocHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  addBlocBtn: {
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    marginTop: 4,
   },
+  error: { color: '#e53e3e', marginTop: 12, textAlign: 'center' },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  pickerSheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 36 },
+  currencyOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10 },
 });
