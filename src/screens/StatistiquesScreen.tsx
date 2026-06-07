@@ -11,10 +11,11 @@ import { PieChart } from 'react-native-gifted-charts';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import FindRow from '@/components/FindRow';
 import { useAuth } from '@/context/AuthContext';
 import { useFindsRealtime } from '@/hooks/useFindsRealtime';
 import { listCategories } from '@/services/categories';
-import { CURRENCIES, type Category, type FindType } from '@/types';
+import { CURRENCIES, type Category, type Find, type FindType } from '@/types';
 import { useTheme } from '@/hooks/use-theme';
 import { BottomTabInset } from '@/constants/theme';
 
@@ -180,6 +181,20 @@ export default function StatistiquesScreen() {
 
   const totalQty = filteredFinds.reduce((s, f) => s + f.qty, 0);
   const activeFilters = countActiveFilters(filters);
+
+  // Finds à afficher dans la liste : filteredFinds dont le segment est dans pieData
+  const pieLabels = useMemo(() => new Set(pieData.map(d => d.label)), [pieData]);
+
+  const listFinds = useMemo(() => {
+    if (filters.minQty === '') return filteredFinds;
+    return filteredFinds.filter(f => {
+      let key: string;
+      if (groupBy === 'category') key = categoriesMap[f.categoryId]?.name ?? 'Sans catégorie';
+      else if (groupBy === 'currency') key = f.currency;
+      else key = f.type === 'piece' ? 'Pièces' : 'Billets';
+      return pieLabels.has(key);
+    });
+  }, [filteredFinds, filters.minQty, groupBy, categoriesMap, pieLabels]);
 
   // ─── Helpers setState ──────────────────────────────────────────────────────
 
@@ -424,6 +439,23 @@ export default function StatistiquesScreen() {
                   </View>
                 ))}
               </View>
+
+              {/* Liste filtrée */}
+              <ThemedText type="small" style={[styles.sectionLabel, { color: theme.textSecondary, marginTop: 24 }]}>
+                Trouvailles ({listFinds.length})
+              </ThemedText>
+              <View style={styles.findList}>
+                {listFinds.map((f, i) => (
+                  <View key={f.id}>
+                    <FindRow
+                      find={f}
+                      categoryName={categoriesMap[f.categoryId]?.name ?? '—'}
+                      onPress={() => {}}
+                    />
+                    {i < listFinds.length - 1 && <View style={styles.separator} />}
+                  </View>
+                ))}
+              </View>
             </>
           ))}
         </ScrollView>
@@ -475,6 +507,8 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
 
   legend: { gap: 8 },
+  findList: { gap: 0 },
+  separator: { height: 8 },
   legendRow: {
     flexDirection: 'row', alignItems: 'center',
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,

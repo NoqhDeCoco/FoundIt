@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import FindRow from '@/components/FindRow';
 import { useAuth } from '@/context/AuthContext';
 import { useFindsRealtime } from '@/hooks/useFindsRealtime';
 import { listCategories } from '@/services/categories';
 import type { Category, Find } from '@/types';
-import { formatAmount, formatDate } from '@/utils/formatFind';
 import { useTheme } from '@/hooks/use-theme';
 import { BottomTabInset } from '@/constants/theme';
 import AddFindModal from '@/screens/AddFindModal';
@@ -40,26 +34,6 @@ export default function MenuScreen() {
 
   useEffect(() => { refreshCategories(); }, [user]);
 
-  const renderFind = ({ item }: { item: Find }) => {
-    const categoryName = categoriesMap[item.categoryId]?.name ?? '—';
-    const dateLabel = formatDate(item.date);
-    const amountLabel = formatAmount(item.amount, item.qty, item.currency);
-
-    return (
-      <TouchableOpacity
-        style={[styles.row, { backgroundColor: theme.backgroundElement }]}
-        onPress={() => setSelectedFind(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.rowLeft}>
-          <ThemedText type="smallBold">{dateLabel}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">{categoryName}</ThemedText>
-        </View>
-        <ThemedText type="smallBold">{amountLabel}</ThemedText>
-      </TouchableOpacity>
-    );
-  };
-
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -71,7 +45,13 @@ export default function MenuScreen() {
           <FlatList
             data={finds}
             keyExtractor={(item) => item.id}
-            renderItem={renderFind}
+            renderItem={({ item }) => (
+              <FindRow
+                find={item}
+                categoryName={categoriesMap[item.categoryId]?.name ?? '—'}
+                onPress={setSelectedFind}
+              />
+            )}
             contentContainerStyle={[
               styles.list,
               finds.length === 0 && styles.listEmpty,
@@ -99,7 +79,6 @@ export default function MenuScreen() {
         visible={addVisible}
         onClose={() => { setAddVisible(false); refreshCategories(); }}
       />
-
       <EditFindModal
         find={selectedFind}
         initialCategoryName={selectedFind ? (categoriesMap[selectedFind.categoryId]?.name ?? '') : ''}
@@ -116,15 +95,6 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingTop: 4 },
   listEmpty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   empty: { textAlign: 'center' },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  rowLeft: { gap: 2 },
   separator: { height: 8 },
   fab: {
     position: 'absolute',
