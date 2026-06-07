@@ -4,9 +4,11 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithCredential,
   User,
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/services/firebase';
 
 type AuthContextType = {
@@ -14,6 +16,7 @@ type AuthContextType = {
   loading: boolean;
   signUp: (email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<void>;
   logOut: () => Promise<void>;
 };
 
@@ -45,12 +48,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
+  const signInWithGoogle = async (idToken: string) => {
+    const credential = GoogleAuthProvider.credential(idToken);
+    const { user: googleUser } = await signInWithCredential(auth, credential);
+    const userRef = doc(db, 'users', googleUser.uid);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) {
+      await setDoc(userRef, {
+        uid: googleUser.uid,
+        email: googleUser.email,
+        createdAt: serverTimestamp(),
+        settings: { theme: 'light', language: 'fr' },
+      });
+    }
+  };
+
   const logOut = async () => {
     await signOut(auth);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, logOut }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signInWithGoogle, logOut }}>
       {children}
     </AuthContext.Provider>
   );

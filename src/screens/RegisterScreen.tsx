@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useAuth } from '@/context/AuthContext';
 import { getFirebaseErrorMessage } from '@/utils/firebaseErrors';
+import GoogleSignInButton from '@/components/GoogleSignInButton';
 
 type Props = {
   onGoToLogin: () => void;
@@ -76,6 +77,14 @@ export default function RegisterScreen({ onGoToLogin }: Props) {
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Créer un compte</Text>}
       </TouchableOpacity>
 
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>ou</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
+      <GoogleSignInButton onError={setError} />
+
       <TouchableOpacity onPress={onGoToLogin}>
         <Text style={styles.link}>Déjà un compte ? Se connecter</Text>
       </TouchableOpacity>
@@ -103,5 +112,8 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   error: { color: '#e53e3e', marginBottom: 8, textAlign: 'center' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#e0e0e0' },
+  dividerText: { color: '#999', fontSize: 13 },
   link: { color: '#208AEF', textAlign: 'center', marginTop: 20, fontSize: 15 },
 });
