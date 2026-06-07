@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
-import { useColorScheme, ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
+import { UserSettingsProvider, useUserSettings } from '@/context/UserSettingsContext';
 import LoginScreen from '@/screens/LoginScreen';
 import RegisterScreen from '@/screens/RegisterScreen';
 
-function AppContent() {
+function ThemedApp() {
   const { user, loading } = useAuth();
+  const { effectiveTheme } = useUserSettings();
   const [showRegister, setShowRegister] = useState(false);
 
   if (loading) {
@@ -20,27 +22,28 @@ function AppContent() {
     );
   }
 
-  if (!user) {
-    return showRegister
-      ? <RegisterScreen onGoToLogin={() => setShowRegister(false)} />
-      : <LoginScreen onGoToRegister={() => setShowRegister(true)} />;
-  }
-
   return (
-    <>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </>
+    <ThemeProvider value={effectiveTheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {!user ? (
+        showRegister
+          ? <RegisterScreen onGoToLogin={() => setShowRegister(false)} />
+          : <LoginScreen onGoToRegister={() => setShowRegister(true)} />
+      ) : (
+        <>
+          <AnimatedSplashOverlay />
+          <AppTabs />
+        </>
+      )}
+    </ThemeProvider>
   );
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </ThemeProvider>
+    <AuthProvider>
+      <UserSettingsProvider>
+        <ThemedApp />
+      </UserSettingsProvider>
+    </AuthProvider>
   );
 }

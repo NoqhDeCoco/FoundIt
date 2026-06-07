@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -15,6 +16,7 @@ import AddFindModal from '@/screens/AddFindModal';
 import EditFindModal from '@/screens/EditFindModal';
 
 export default function MenuScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { finds, loading } = useFindsRealtime();
   const theme = useTheme();
@@ -37,7 +39,7 @@ export default function MenuScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        <ThemedText type="subtitle" style={styles.title}>Trouvailles</ThemedText>
+        <ThemedText type="subtitle" style={styles.title}>{t('menu.title')}</ThemedText>
 
         {loading ? (
           <ActivityIndicator style={{ flex: 1 }} color={theme.text} />
@@ -59,7 +61,7 @@ export default function MenuScreen() {
             ]}
             ListEmptyComponent={
               <ThemedText type="default" themeColor="textSecondary" style={styles.empty}>
-                Aucune trouvaille pour l'instant
+                {t('menu.empty')}
               </ThemedText>
             }
             ItemSeparatorComponent={() => <View style={styles.separator} />}
