@@ -18,6 +18,7 @@ import { formatAmount, formatDate } from '@/utils/formatFind';
 import { useTheme } from '@/hooks/use-theme';
 import { BottomTabInset } from '@/constants/theme';
 import AddFindModal from '@/screens/AddFindModal';
+import EditFindModal from '@/screens/EditFindModal';
 
 export default function MenuScreen() {
   const { user } = useAuth();
@@ -25,20 +26,10 @@ export default function MenuScreen() {
   const theme = useTheme();
 
   const [categoriesMap, setCategoriesMap] = useState<Record<string, Category>>({});
-  const [modalVisible, setModalVisible] = useState(false);
+  const [addVisible, setAddVisible] = useState(false);
+  const [selectedFind, setSelectedFind] = useState<Find | null>(null);
 
-  useEffect(() => {
-    if (!user) return;
-    listCategories(user.uid).then((cats) => {
-      const map: Record<string, Category> = {};
-      cats.forEach((c) => { map[c.id] = c; });
-      setCategoriesMap(map);
-    });
-  }, [user]);
-
-  // Rafraîchit les catégories après ajout d'une trouvaille (nouvelle catégorie possible)
-  const handleModalClose = () => {
-    setModalVisible(false);
+  const refreshCategories = () => {
     if (!user) return;
     listCategories(user.uid).then((cats) => {
       const map: Record<string, Category> = {};
@@ -46,6 +37,8 @@ export default function MenuScreen() {
       setCategoriesMap(map);
     });
   };
+
+  useEffect(() => { refreshCategories(); }, [user]);
 
   const renderFind = ({ item }: { item: Find }) => {
     const categoryName = categoriesMap[item.categoryId]?.name ?? '—';
@@ -55,7 +48,7 @@ export default function MenuScreen() {
     return (
       <TouchableOpacity
         style={[styles.row, { backgroundColor: theme.backgroundElement }]}
-        onPress={() => console.log('Find tapped:', item.id)}
+        onPress={() => setSelectedFind(item)}
         activeOpacity={0.7}
       >
         <View style={styles.rowLeft}>
@@ -93,17 +86,25 @@ export default function MenuScreen() {
           />
         )}
 
-        {/* Bouton flottant "+" */}
         <TouchableOpacity
           style={[styles.fab, { bottom: BottomTabInset + 16 }]}
-          onPress={() => setModalVisible(true)}
+          onPress={() => setAddVisible(true)}
           activeOpacity={0.85}
         >
           <ThemedText type="default" style={styles.fabIcon}>+</ThemedText>
         </TouchableOpacity>
       </SafeAreaView>
 
-      <AddFindModal visible={modalVisible} onClose={handleModalClose} />
+      <AddFindModal
+        visible={addVisible}
+        onClose={() => { setAddVisible(false); refreshCategories(); }}
+      />
+
+      <EditFindModal
+        find={selectedFind}
+        initialCategoryName={selectedFind ? (categoriesMap[selectedFind.categoryId]?.name ?? '') : ''}
+        onClose={() => { setSelectedFind(null); refreshCategories(); }}
+      />
     </ThemedView>
   );
 }
