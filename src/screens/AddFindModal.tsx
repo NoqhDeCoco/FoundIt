@@ -12,13 +12,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Timestamp, collection, doc } from 'firebase/firestore';
+import * as Location from 'expo-location';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/AuthContext';
 import { createFindGroup } from '@/services/finds';
 import { createCategory, listCategories } from '@/services/categories';
 import { db } from '@/services/firebase';
-import { CURRENCIES, FindType, Category } from '@/types';
+import { CURRENCIES, FindType, Category, Location as FindLocation } from '@/types';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -66,6 +67,10 @@ export default function AddFindModal({ visible, onClose }: Props) {
   const [categoryFocused, setCategoryFocused] = useState(false);
   const [currencyPickerFor, setCurrencyPickerFor] = useState<string | null>(null);
 
+  const [locationCoords, setLocationCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationLabel, setLocationLabel] = useState('');
+  const [locLoading, setLocLoading] = useState(false);
+
   useEffect(() => {
     if (visible && user) {
       listCategories(user.uid).then(setAllCategories);
@@ -90,12 +95,31 @@ export default function AddFindModal({ visible, onClose }: Props) {
 
   // ─── Reset ───────────────────────────────────────────────────────────────────
 
+  const handleGeolocate = async () => {
+    setLocLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setError('Permission de localisation refusée. Autorise-la dans les paramètres de ton téléphone.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLocationCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    } catch {
+      setError('Impossible de récupérer la position.');
+    } finally {
+      setLocLoading(false);
+    }
+  };
+
   const reset = () => {
     setDateText(todayFR());
     setCategoryName('');
     setBlocs([newBloc()]);
     setError('');
     setCategoryFocused(false);
+    setLocationCoords(null);
+    setLocationLabel('');
   };
 
   const handleClose = () => { reset(); onClose(); };
@@ -129,6 +153,10 @@ export default function AddFindModal({ visible, onClose }: Props) {
       const groupId = doc(collection(db, '_')).id;
       const date = Timestamp.fromDate(parsedDate);
 
+      const location: FindLocation | undefined = locationCoords
+        ? { ...locationCoords, ...(locationLabel.trim() ? { label: locationLabel.trim() } : {}) }
+        : undefined;
+
       await createFindGroup(
         user.uid,
         blocs.map((b) => ({
@@ -139,6 +167,7 @@ export default function AddFindModal({ visible, onClose }: Props) {
           currency: b.currency,
           amount: parseFloat(b.amount.replace(',', '.')),
           qty: parseInt(b.qty, 10),
+          ...(location ? { location } : {}),
         }))
       );
 
@@ -222,6 +251,43 @@ export default function AddFindModal({ visible, onClose }: Props) {
                   </TouchableOpacity>
                 ))}
               </View>
+            )}
+
+            {/* ── Localisation (optionnelle) ── */}
+            <ThemedText type="small" style={[styles.label, labelStyle]}>Localisation <ThemedText type="small" themeColor="textSecondary">(optionnelle)</ThemedText></ThemedText>
+            <View style={styles.row}>
+              <TouchableOpacity
+                style={[styles.geoBtn, { backgroundColor: theme.backgroundElement, flex: 1 }]}
+                onPress={handleGeolocate}
+                disabled={locLoading}
+              >
+                {locLoading
+                  ? <ActivityIndicator size="small" color="#208AEF" />
+                  : <ThemedText type="small" style={{ color: locationCoords ? '#208AEF' : theme.text }}>
+                      {locationCoords
+                        ? `📍 ${locationCoords.lat.toFixed(4)}, ${locationCoords.lng.toFixed(4)}`
+                        : '📍 Me géolocaliser'}
+                    </ThemedText>
+                }
+              </TouchableOpacity>
+              {locationCoords && (
+                <TouchableOpacity
+                  style={[styles.geoBtn, { backgroundColor: theme.backgroundElement }]}
+                  onPress={() => { setLocationCoords(null); setLocationLabel(''); }}
+                >
+                  <ThemedText type="small" style={{ color: '#e53e3e' }}>✕</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+            {locationCoords && (
+              <TextInput
+                style={[inputStyle, { marginTop: 8 }]}
+                value={locationLabel}
+                onChangeText={setLocationLabel}
+                placeholder="Libellé (ex: Gare Saint-Lazare)"
+                placeholderTextColor={theme.textSecondary}
+                autoCapitalize="sentences"
+              />
             )}
 
             {/* ── Blocs monnaies ── */}
@@ -376,6 +442,7 @@ const styles = StyleSheet.create({
   blocsHeader: { marginTop: 20, marginBottom: 8 },
   bloc: { borderRadius: 14, padding: 14, marginBottom: 10 },
   blocHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  geoBtn: { borderRadius: 10, padding: 14, alignItems: 'center', justifyContent: 'center' },
   addBlocBtn: {
     borderWidth: 1.5,
     borderStyle: 'dashed',

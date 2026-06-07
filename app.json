@@ -26,6 +26,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "FoundIt utilise votre position pour enregistrer où vous avez trouvé une pièce.",
+          "locationWhenInUsePermission": "FoundIt utilise votre position pour enregistrer où vous avez trouvé une pièce."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#208AEF",
