@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -18,7 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { createFind } from '@/services/finds';
 import { createCategory, listCategories } from '@/services/categories';
 import { db } from '@/services/firebase';
-import { CURRENCIES, FindType } from '@/types';
+import { CURRENCIES, FindType, Category } from '@/types';
 import { useTheme } from '@/hooks/use-theme';
 
 type Props = {
@@ -55,6 +55,27 @@ export default function AddFindModal({ visible, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const [allCategories, setAllCategories] = useState<Category[]>([]);
+  const [categoryFocused, setCategoryFocused] = useState(false);
+
+  // Charge les catégories à l'ouverture du modal
+  useEffect(() => {
+    if (visible && user) {
+      listCategories(user.uid).then(setAllCategories);
+    }
+  }, [visible, user]);
+
+  const suggestions = categoryFocused && categoryName.trim().length > 0
+    ? allCategories.filter((c) =>
+        c.name.toLowerCase().includes(categoryName.trim().toLowerCase())
+      )
+    : [];
+
+  const selectCategory = (cat: Category) => {
+    setCategoryName(cat.name);
+    setCategoryFocused(false);
+  };
+
   const selectedCurrency = CURRENCIES.find((c) => c.code === currency)!;
 
   const reset = () => {
@@ -65,6 +86,7 @@ export default function AddFindModal({ visible, onClose }: Props) {
     setType('piece');
     setCurrency('EUR');
     setError('');
+    setCategoryFocused(false);
   };
 
   const handleClose = () => {
@@ -89,14 +111,13 @@ export default function AddFindModal({ visible, onClose }: Props) {
 
     setLoading(true);
     try {
-      // Trouve ou crée la catégorie
-      const cats = await listCategories(user.uid);
-      let cat = cats.find((c) => c.name.toLowerCase() === catName.toLowerCase());
+      // Trouve ou crée la catégorie (insensible à la casse, sans doublon)
+      let cat = allCategories.find((c) => c.name.toLowerCase() === catName.toLowerCase());
       if (!cat) {
         cat = await createCategory(user.uid, { name: catName });
+        setAllCategories((prev) => [...prev, cat!]);
       }
 
-      // groupId unique pour cette trouvaille individuelle
       const groupId = doc(collection(db, '_')).id;
 
       await createFind(user.uid, {
@@ -111,7 +132,7 @@ export default function AddFindModal({ visible, onClose }: Props) {
 
       handleClose();
     } catch {
-      setError('Erreur lors de l\'enregistrement. Réessaye.');
+      setError("Erreur lors de l'enregistrement. Réessaye.");
     } finally {
       setLoading(false);
     }
@@ -158,16 +179,36 @@ export default function AddFindModal({ visible, onClose }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* Catégorie */}
+            {/* Catégorie avec autocomplete */}
             <ThemedText type="small" style={[styles.label, labelStyle]}>Catégorie</ThemedText>
             <TextInput
               style={inputStyle}
               value={categoryName}
-              onChangeText={setCategoryName}
+              onChangeText={(text) => { setCategoryName(text); setCategoryFocused(true); }}
+              onFocus={() => setCategoryFocused(true)}
+              onBlur={() => {
+                // Délai pour laisser le temps au onPress de la suggestion de se déclencher
+                setTimeout(() => setCategoryFocused(false), 150);
+              }}
               placeholder="Ex: Rue, Métro, Supermarché…"
               placeholderTextColor={theme.textSecondary}
               autoCapitalize="sentences"
             />
+
+            {/* Suggestions */}
+            {suggestions.length > 0 && (
+              <View style={[styles.suggestions, { backgroundColor: theme.backgroundElement }]}>
+                {suggestions.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={styles.suggestionItem}
+                    onPress={() => selectCategory(cat)}
+                  >
+                    <ThemedText type="default">{cat.name}</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
 
             {/* Type */}
             <ThemedText type="small" style={[styles.label, labelStyle]}>Type</ThemedText>
@@ -288,6 +329,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  suggestions: {
+    borderRadius: 10,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(0,0,0,0.08)',
   },
   error: { color: '#e53e3e', marginTop: 12, textAlign: 'center' },
   overlay: {
